@@ -16,6 +16,12 @@ namespace GoProCUI
         {
             TwoWayNamedPipe pipe = new TwoWayNamedPipe();
             pipe.OnRead += Console.WriteLine;
+
+            await pipe.OnDisposeTask;
+            
+            Console.WriteLine("Dispose");
+            
+            await Task.Delay(1000);
         }
     }
 }
