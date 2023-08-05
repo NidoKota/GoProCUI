@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using NamedPipeWrapper;
 
 namespace GoProCUI
 {
@@ -13,7 +14,8 @@ namespace GoProCUI
     {
         static async Task Main(string[] args)
         {
-            
+            TwoWayNamedPipe pipe = new TwoWayNamedPipe();
+            pipe.OnRead += Console.WriteLine;
         }
     }
 }
