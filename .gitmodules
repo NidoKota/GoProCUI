@@ -1,0 +1,3 @@
+[submodule "GoProCUI/NamedPipeWrapper"]
+	path = GoProCUI/NamedPipeWrapper
+	url = https://github.com/NidoKota/NamedPipeWrapper.git
