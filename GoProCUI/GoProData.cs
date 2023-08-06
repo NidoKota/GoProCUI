@@ -12,5 +12,6 @@ public class GoProData
     public class Device
     {
         public string Name;
+        public string Id;
     }
 }

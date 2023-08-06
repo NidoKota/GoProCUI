@@ -9,6 +9,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 // using System.Windows.Controls;
@@ -109,7 +110,7 @@ namespace GoProCSharpSample
         #endregion
 
         #region Bluetooth Device Members
-        private BluetoothLEDevice mBLED = null;
+        // private BluetoothLEDevice mBLED = null;
         public GattCharacteristic mNotifyCmds = null;
         public GattCharacteristic mSendCmds = null;
         public GattCharacteristic mSetSettings = null;
@@ -133,8 +134,11 @@ namespace GoProCSharpSample
 
         #region Button Click Handlers
 
-        public void BtnScanBLE_Click()//(object sender, RoutedEventArgs e)
+        private TaskCompletionSource<int> _btnScanBLE_ClickTaskSource;
+        public async Task BtnScanBLE_Click(CancellationToken cancel)//(object sender, RoutedEventArgs e)
         {
+            _btnScanBLE_ClickTaskSource = new TaskCompletionSource<int>();
+            
             string BLESelector = "System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\"";
             DeviceInformationKind deviceInformationKind = DeviceInformationKind.AssociationEndpoint;
             string[] requiredProperties = { "System.Devices.Aep.Bluetooth.Le.IsConnectable", "System.Devices.Aep.IsConnected" };
@@ -146,53 +150,95 @@ namespace GoProCSharpSample
             mDeviceWatcher.EnumerationCompleted += MDeviceWatcher_EnumerationCompleted; ;
             mDeviceWatcher.Stopped += MDeviceWatcher_Stopped; ;
             
+            mDeviceWatcher.EnumerationCompleted += (sender, args) => _btnScanBLE_ClickTaskSource.SetResult(0);
+            cancel.Register(() =>
+            {
+                mDeviceWatcher.Stop();
+                _btnScanBLE_ClickTaskSource.TrySetCanceled();
+            });
+            
             StatusOutput("Scanning for devices...");// this.txtStatusBar.Text = "Scanning for devices...";
             mDeviceWatcher.Start();
+            
+            await _btnScanBLE_ClickTaskSource.Task;
         }
         
-        public async void BtnPair_Click(GDeviceInformation selected)//(object sender, RoutedEventArgs e)
+        private TaskCompletionSource<int> _custom_PairingRequestedTaskSource;
+        public async Task<bool> /*void*/ BtnPair_Click(GDeviceInformation selected, CancellationToken cancel)//(object sender, RoutedEventArgs e)
         {
+            _custom_PairingRequestedTaskSource = new TaskCompletionSource<int>();
+            
             GDeviceInformation lDevice = selected;//(GDeviceInformation)lbDevices.SelectedItem;
             if (lDevice != null)
             {
                 StatusOutput("Pairing started");
 
-                mBLED = await BluetoothLEDevice.FromIdAsync(lDevice.DeviceInfo.Id);
+                using BluetoothLEDevice mBLED = await BluetoothLEDevice.FromIdAsync(lDevice.DeviceInfo.Id);
                 mBLED.DeviceInformation.Pairing.Custom.PairingRequested += Custom_PairingRequested;
+
                 if (mBLED.DeviceInformation.Pairing.CanPair)
                 {
                     DevicePairingProtectionLevel dppl = mBLED.DeviceInformation.Pairing.ProtectionLevel;
                     DevicePairingResult dpr = await mBLED.DeviceInformation.Pairing.Custom.PairAsync(DevicePairingKinds.ConfirmOnly, dppl);
 
+                    cancel.Register(() => _custom_PairingRequestedTaskSource.TrySetCanceled());
+                    
+                    await _custom_PairingRequestedTaskSource.Task;
+
                     StatusOutput("Pairing result = " + dpr.Status.ToString());
+                    return dpr.Status == DevicePairingResultStatus.AlreadyPaired || dpr.Status == DevicePairingResultStatus.Paired;
                 }
                 else
                 {
                     StatusOutput("Pairing failed");
+                    return false;
                 }
             }
             else
             {
                 StatusOutput("Select a device");
+                return false;
             }
         }
-        public async void BtnConnect_Click(GDeviceInformation selected)//(object sender, RoutedEventArgs e)
+        
+        private TaskCompletionSource<int> _mBLED_ConnectionStatusChangedTaskSource;
+        public async Task /*void*/ BtnConnect_Click(GDeviceInformation selected, CancellationToken cancel)//(object sender, RoutedEventArgs e)
         {
-            StatusOutput("Connecting...");
+            _mBLED_ConnectionStatusChangedTaskSource = new TaskCompletionSource<int>();
+            
+            // StatusOutput("Connecting...");
             GDeviceInformation mDI = selected;//(GDeviceInformation)lbDevices.SelectedItem;
             if (mDI == null)
             {
                 StatusOutput("No device selected");
                 return;
             }
-            mBLED = await BluetoothLEDevice.FromIdAsync(mDI.DeviceInfo.Id);
+
+            using BluetoothLEDevice mBLED = await BluetoothLEDevice.FromIdAsync(mDI.DeviceInfo.Id);
+            cancel.ThrowIfCancellationRequested();
+
             if(!mBLED.DeviceInformation.Pairing.IsPaired)
             {
-                StatusOutput("Device not paired");
+                // StatusOutput("Device not paired");
+                // return;
+
+                bool isPairSuccess = await BtnPair_Click(selected, cancel);
+                if (!isPairSuccess) return;
+
+                await BtnConnect_Click(selected, cancel);
                 return;
             }
+            
+            StatusOutput("Connecting...");
+
+            if (mBLED.ConnectionStatus == BluetoothConnectionStatus.Connected) MBLED_ConnectionStatusChanged(mBLED, null);
+            else mBLED.ConnectionStatusChanged += MBLED_ConnectionStatusChanged;
+
+            cancel.Register(() => _mBLED_ConnectionStatusChangedTaskSource.TrySetCanceled());
+            await _mBLED_ConnectionStatusChangedTaskSource.Task;
+            
             GattDeviceServicesResult result = await mBLED.GetGattServicesAsync();
-            mBLED.ConnectionStatusChanged += MBLED_ConnectionStatusChanged;
+            cancel.ThrowIfCancellationRequested();
 
             if (result.Status == GattCommunicationStatus.Success)
             {
@@ -200,6 +246,8 @@ namespace GoProCSharpSample
                 foreach (GattDeviceService gatt in services)
                 {
                     GattCharacteristicsResult res = await gatt.GetCharacteristicsAsync();
+                    cancel.ThrowIfCancellationRequested();
+                    
                     if (res.Status == GattCommunicationStatus.Success)
                     {
                         IReadOnlyList<GattCharacteristic> characteristics = res.Characteristics;
@@ -234,6 +282,8 @@ namespace GoProCSharpSample
                             {
                                 mNotifyCmds = characteristic;
                                 GattCommunicationStatus status = await mNotifyCmds.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                                cancel.ThrowIfCancellationRequested();
+                                
                                 if (status == GattCommunicationStatus.Success)
                                 {
                                     mNotifyCmds.ValueChanged += MNotifyCmds_ValueChanged;
@@ -252,6 +302,8 @@ namespace GoProCSharpSample
                             {
                                 mNotifySettings = characteristic;
                                 GattCommunicationStatus status = await mNotifySettings.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                                cancel.ThrowIfCancellationRequested();
+                                
                                 if (status == GattCommunicationStatus.Success)
                                 {
                                     mNotifySettings.ValueChanged += MNotifySettings_ValueChanged;
@@ -270,6 +322,8 @@ namespace GoProCSharpSample
                             {
                                 mNotifyQueryResp = characteristic;
                                 GattCommunicationStatus status = await mNotifyQueryResp.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                                cancel.ThrowIfCancellationRequested();
+                                
                                 if (status == GattCommunicationStatus.Success)
                                 {
                                     mNotifyQueryResp.ValueChanged += MNotifyQueryResp_ValueChanged;
@@ -279,6 +333,8 @@ namespace GoProCSharpSample
                                         DataWriter mm = new DataWriter();
                                         mm.WriteBytes(new byte[] { 1, 0x52 });
                                         GattCommunicationStatus gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
+                                        cancel.ThrowIfCancellationRequested();
+                                        
                                         mm = new DataWriter();
                                         mm.WriteBytes(new byte[] { 1, 0x53 });
                                         gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
@@ -380,8 +436,10 @@ namespace GoProCSharpSample
             // }));
         }
 
+        public event Action OnScanComplete;
         private void MDeviceWatcher_EnumerationCompleted(DeviceWatcher sender, object args)
         {
+            OnScanComplete?.Invoke();
             OnChangeStatusText?.Invoke("Scan Complete");
             // Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             // {
@@ -495,15 +553,15 @@ namespace GoProCSharpSample
 
         private void MBLED_ConnectionStatusChanged(BluetoothLEDevice sender, object args)
         {
-            if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected)
-                StatusOutput("CONNECTED");
-            else
-                StatusOutput("DISCONNECTED");
+            if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected) StatusOutput("CONNECTED");
+            else StatusOutput("DISCONNECTED");
+            _mBLED_ConnectionStatusChangedTaskSource.SetResult(0);
         }
         private void Custom_PairingRequested(DeviceInformationCustomPairing sender, DevicePairingRequestedEventArgs args)
         {
             StatusOutput("Pairing request...");
             args.Accept();
+            _custom_PairingRequestedTaskSource.SetResult(0);
         }
 
         #endregion

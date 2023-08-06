@@ -16,6 +16,7 @@ namespace GoProCUI
         {
             GoProCUI goProCui = new GoProCUI();
             goProCui.Init();
+            goProCui.InitGoProCommunication();
 
             await Source.Task;
             Console.ReadKey();
@@ -53,7 +54,7 @@ namespace GoProCUI
         {
             try
             {
-                while (_isWriting && !token.IsCancellationRequested) await Task.Delay(100, token);
+                while (_isWriting) await Task.Delay(100, token);
             }
             catch (OperationCanceledException)
             {
@@ -73,35 +74,43 @@ namespace GoProCUI
 
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-        private GoProData _goProData = new GoProData();
-        
-        private void OnPipeRead(string message)
+        private GoProCommunication _goProCommunication = new GoProCommunication();
+
+        private void InitGoProCommunication()
         {
-            _goProData.Buttery = 1;
-            _goProData.AccessPoint = true;
-            _goProData.Devices.Add(new GoProData.Device());
-            
-            WriteGoProData();
+            _goProCommunication.OnGoProDataChanged += OnGoProDataChanged;
+        }
 
-            _goProData.Buttery = 2;
-            _goProData.AccessPoint = false;
-            _goProData.Devices.Add(new GoProData.Device());
-            _goProData.Devices.Add(new GoProData.Device());
-            _goProData.Devices.Add(new GoProData.Device());
-
+        private void OnGoProDataChanged()
+        {
             WriteGoProData();
+        }
+
+        private async void OnPipeRead(string message)
+        {
+            switch (message)
+            {
+                case "ScanBluetooth":
+                    _goProCommunication.ScanBluetooth();
+                    break;
+                case "ConnectBluetooth":
+                    await _goProCommunication.ConnectBluetooth(_goProCommunication.GoProData.Devices[0]);
+                    break;
+                default:
+                    throw new ArgumentException();
+            }
         }
 
         private async void WriteGoProData()
         {
-            string json = JsonConvert.SerializeObject(_goProData);
+            string json = JsonConvert.SerializeObject(_goProCommunication.GoProData);
             
             try
             {
                 await WaitOtherWriting(_cancelOldPipeTokenSource.Token);
                 
                 _isWriting = true;
-                await _pipe.Write(json, _cancelOldPipeTokenSource.Token);
+                await _pipe.Write(json, _cancelOldPipeTokenSource.Token); 
             }
             catch (OperationCanceledException)
             {
