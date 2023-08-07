@@ -137,248 +137,295 @@ namespace GoProCSharpSample
         private TaskCompletionSource<int> _btnScanBLE_ClickTaskSource;
         public async Task BtnScanBLE_Click(CancellationToken cancel)//(object sender, RoutedEventArgs e)
         {
-            _btnScanBLE_ClickTaskSource = new TaskCompletionSource<int>();
-            
-            string BLESelector = "System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\"";
-            DeviceInformationKind deviceInformationKind = DeviceInformationKind.AssociationEndpoint;
-            string[] requiredProperties = { "System.Devices.Aep.Bluetooth.Le.IsConnectable", "System.Devices.Aep.IsConnected" };
+            try
+            {
+                _btnScanBLE_ClickTaskSource = new TaskCompletionSource<int>();
 
-            mDeviceWatcher = DeviceInformation.CreateWatcher(BLESelector, requiredProperties, deviceInformationKind);
-            mDeviceWatcher.Added += MDeviceWatcher_Added; ;
-            mDeviceWatcher.Updated += MDeviceWatcher_Updated; ;
-            mDeviceWatcher.Removed += MDeviceWatcher_Removed; ;
-            mDeviceWatcher.EnumerationCompleted += MDeviceWatcher_EnumerationCompleted; ;
-            mDeviceWatcher.Stopped += MDeviceWatcher_Stopped; ;
-            
-            mDeviceWatcher.EnumerationCompleted += (sender, args) => _btnScanBLE_ClickTaskSource.SetResult(0);
-            cancel.Register(() =>
+                string BLESelector = "System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\"";
+                DeviceInformationKind deviceInformationKind = DeviceInformationKind.AssociationEndpoint;
+                string[] requiredProperties = { "System.Devices.Aep.Bluetooth.Le.IsConnectable", "System.Devices.Aep.IsConnected" };
+
+                mDeviceWatcher = DeviceInformation.CreateWatcher(BLESelector, requiredProperties, deviceInformationKind);
+                mDeviceWatcher.Added += MDeviceWatcher_Added; ;
+                mDeviceWatcher.Updated += MDeviceWatcher_Updated; ;
+                mDeviceWatcher.Removed += MDeviceWatcher_Removed; ;
+                mDeviceWatcher.EnumerationCompleted += MDeviceWatcher_EnumerationCompleted; ;
+                // mDeviceWatcher.Stopped += MDeviceWatcher_Stopped; ;
+
+                mDeviceWatcher.EnumerationCompleted += (sender, args) => _btnScanBLE_ClickTaskSource.SetResult(0);
+                cancel.Register(() => _btnScanBLE_ClickTaskSource.TrySetCanceled());
+
+                StatusOutput("Scanning for devices...");// this.txtStatusBar.Text = "Scanning for devices...";
+                mDeviceWatcher.Start();
+
+                await _btnScanBLE_ClickTaskSource.Task;
+            }
+            catch (OperationCanceledException)
+            {
+                StatusOutput("Scanning canceled", true);
+                throw;
+            }
+            finally
             {
                 mDeviceWatcher.Stop();
-                _btnScanBLE_ClickTaskSource.TrySetCanceled();
-            });
-            
-            StatusOutput("Scanning for devices...");// this.txtStatusBar.Text = "Scanning for devices...";
-            mDeviceWatcher.Start();
-            
-            await _btnScanBLE_ClickTaskSource.Task;
+            }
         }
         
         private TaskCompletionSource<int> _custom_PairingRequestedTaskSource;
         public async Task<bool> /*void*/ BtnPair_Click(GDeviceInformation selected, CancellationToken cancel)//(object sender, RoutedEventArgs e)
         {
-            _custom_PairingRequestedTaskSource = new TaskCompletionSource<int>();
-            
-            GDeviceInformation lDevice = selected;//(GDeviceInformation)lbDevices.SelectedItem;
-            if (lDevice != null)
+            try
             {
-                StatusOutput("Pairing started");
+                _custom_PairingRequestedTaskSource = new TaskCompletionSource<int>();
 
-                using BluetoothLEDevice mBLED = await BluetoothLEDevice.FromIdAsync(lDevice.DeviceInfo.Id);
-                mBLED.DeviceInformation.Pairing.Custom.PairingRequested += Custom_PairingRequested;
-
-                if (mBLED.DeviceInformation.Pairing.CanPair)
+                GDeviceInformation lDevice = selected;//(GDeviceInformation)lbDevices.SelectedItem;
+                if (lDevice != null)
                 {
-                    DevicePairingProtectionLevel dppl = mBLED.DeviceInformation.Pairing.ProtectionLevel;
-                    DevicePairingResult dpr = await mBLED.DeviceInformation.Pairing.Custom.PairAsync(DevicePairingKinds.ConfirmOnly, dppl);
+                    StatusOutput("Pairing started");
 
-                    cancel.Register(() => _custom_PairingRequestedTaskSource.TrySetCanceled());
-                    
-                    await _custom_PairingRequestedTaskSource.Task;
+                    using BluetoothLEDevice mBLED = await BluetoothLEDevice.FromIdAsync(lDevice.DeviceInfo.Id);
+                    mBLED.DeviceInformation.Pairing.Custom.PairingRequested += Custom_PairingRequested;
 
-                    StatusOutput("Pairing result = " + dpr.Status.ToString());
-                    return dpr.Status == DevicePairingResultStatus.AlreadyPaired || dpr.Status == DevicePairingResultStatus.Paired;
+                    if (mBLED.DeviceInformation.Pairing.CanPair)
+                    {
+                        DevicePairingProtectionLevel dppl = mBLED.DeviceInformation.Pairing.ProtectionLevel;
+                        DevicePairingResult dpr = await mBLED.DeviceInformation.Pairing.Custom.PairAsync(DevicePairingKinds.ConfirmOnly, dppl);
+
+                        cancel.Register(() => _custom_PairingRequestedTaskSource.TrySetCanceled());
+
+                        await _custom_PairingRequestedTaskSource.Task;
+
+                        StatusOutput("Pairing result = " + dpr.Status.ToString(), true);
+                        return dpr.Status == DevicePairingResultStatus.AlreadyPaired || dpr.Status == DevicePairingResultStatus.Paired;
+                    }
+                    else
+                    {
+                        StatusOutput("Pairing failed", true);
+                        return false;
+                    }
                 }
                 else
                 {
-                    StatusOutput("Pairing failed");
+                    StatusOutput("Select a device", true);
                     return false;
                 }
             }
-            else
+            catch (OperationCanceledException)
             {
-                StatusOutput("Select a device");
-                return false;
+                StatusOutput("Pairing canceled", true);
+                throw;
             }
         }
         
         private TaskCompletionSource<int> _mBLED_ConnectionStatusChangedTaskSource;
         public async Task /*void*/ BtnConnect_Click(GDeviceInformation selected, CancellationToken cancel)//(object sender, RoutedEventArgs e)
         {
+            BluetoothLEDevice mBLED = null;
+
+            try
+            {
+                GDeviceInformation mDI = selected;//(GDeviceInformation)lbDevices.SelectedItem;
+                if (mDI == null)
+                {
+                    StatusOutput("No device selected", true);
+                    return;
+                }
+
+                cancel.ThrowIfCancellationRequested();
+                mBLED = await BluetoothLEDevice.FromIdAsync(mDI.DeviceInfo.Id);
+
+                if (mBLED == null)
+                {
+                    StatusOutput("Device not found", true);
+                    return;
+                }
+
+                if (!mBLED.DeviceInformation.Pairing.IsPaired)
+                {
+                    bool isPairSuccess = await BtnPair_Click(selected, cancel);
+                    if (!isPairSuccess)
+                    {
+                        StatusOutput("Device not paired", true);
+                        return;
+                    }
+
+                    await BtnConnect_Click(selected, cancel);
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                mBLED?.Dispose();
+                StatusOutput("Connect canceled", true);
+                throw;
+            }
+
             _mBLED_ConnectionStatusChangedTaskSource = new TaskCompletionSource<int>();
-            
-            // StatusOutput("Connecting...");
-            GDeviceInformation mDI = selected;//(GDeviceInformation)lbDevices.SelectedItem;
-            if (mDI == null)
-            {
-                StatusOutput("No device selected");
-                return;
-            }
 
-            cancel.ThrowIfCancellationRequested();
-            using BluetoothLEDevice mBLED = await BluetoothLEDevice.FromIdAsync(mDI.DeviceInfo.Id);
-
-            if (mBLED == null)
-            {
-                StatusOutput("Device not found");
-                return;
-            }
-            
-            if (!mBLED.DeviceInformation.Pairing.IsPaired)
-            {
-                // StatusOutput("Device not paired");
-                // return;
-
-                bool isPairSuccess = await BtnPair_Click(selected, cancel);
-                if (!isPairSuccess) return;
-
-                await BtnConnect_Click(selected, cancel);
-                return;
-            }
-            
             StatusOutput("Connecting...");
             
             if (mBLED.ConnectionStatus == BluetoothConnectionStatus.Connected)
             {
                 MBLED_ConnectionStatusChanged(mBLED, null);
+                mBLED.Dispose();
                 return;
             }
-            
-            cancel.Register(() => _mBLED_ConnectionStatusChangedTaskSource.TrySetCanceled());
-            mBLED.ConnectionStatusChanged += MBLED_ConnectionStatusChanged;
-            
-            cancel.ThrowIfCancellationRequested();
-            GattDeviceServicesResult result = await mBLED.GetGattServicesAsync();
 
-            if (result.Status == GattCommunicationStatus.Success)
+            try
             {
-                IReadOnlyList<GattDeviceService> services = result.Services;
-                foreach (GattDeviceService gatt in services)
-                {
-                    cancel.ThrowIfCancellationRequested();
-                    GattCharacteristicsResult res = await gatt.GetCharacteristicsAsync();
-                    
-                    if (res.Status == GattCommunicationStatus.Success)
-                    {
-                        IReadOnlyList<GattCharacteristic> characteristics = res.Characteristics;
-                        foreach (GattCharacteristic characteristic in characteristics)
-                        {
-                            GattCharacteristicProperties properties = characteristic.CharacteristicProperties;
-                            if (properties.HasFlag(GattCharacteristicProperties.Read))
-                            {
-                                // This characteristic supports reading from it.
-                            }
-                            if (properties.HasFlag(GattCharacteristicProperties.Write))
-                            {
-                                // This characteristic supports writing to it.
-                            }
-                            if (properties.HasFlag(GattCharacteristicProperties.Notify))
-                            {
-                                // This characteristic supports subscribing to notifications.
-                            }
-                            if (characteristic.Uuid.ToString() == "b5f90002-aa8d-11e3-9046-0002a5d5c51b")
-                            {
-                                mReadAPName = characteristic;
-                            }
-                            if (characteristic.Uuid.ToString() == "b5f90003-aa8d-11e3-9046-0002a5d5c51b")
-                            {
-                                mReadAPPass = characteristic;
-                            }
-                            if (characteristic.Uuid.ToString() == "b5f90072-aa8d-11e3-9046-0002a5d5c51b")
-                            {
-                                mSendCmds = characteristic;
-                            }
-                            if (characteristic.Uuid.ToString() == "b5f90073-aa8d-11e3-9046-0002a5d5c51b")
-                            {
-                                mNotifyCmds = characteristic;
-                                
-                                cancel.ThrowIfCancellationRequested();
-                                GattCommunicationStatus status = await mNotifyCmds.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                                
-                                if (status == GattCommunicationStatus.Success)
-                                {
-                                    mNotifyCmds.ValueChanged += MNotifyCmds_ValueChanged;
-                                }
-                                else
-                                {
-                                    //failure
-                                    StatusOutput("Failed to attach notify cmd " + status);
-                                }
-                            }
-                            if (characteristic.Uuid.ToString() == "b5f90074-aa8d-11e3-9046-0002a5d5c51b")
-                            {
-                                mSetSettings = characteristic;
-                            }
-                            if (characteristic.Uuid.ToString() == "b5f90075-aa8d-11e3-9046-0002a5d5c51b")
-                            {
-                                mNotifySettings = characteristic;
-                                
-                                cancel.ThrowIfCancellationRequested();
-                                GattCommunicationStatus status = await mNotifySettings.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                                
-                                if (status == GattCommunicationStatus.Success)
-                                {
-                                    mNotifySettings.ValueChanged += MNotifySettings_ValueChanged;
-                                }
-                                else
-                                {
-                                    //failure
-                                    StatusOutput("Failed to attach notify settings " + status);
-                                }
-                            }
-                            if (characteristic.Uuid.ToString() == "b5f90076-aa8d-11e3-9046-0002a5d5c51b")
-                            {
-                                mSendQueries = characteristic;
-                            }
-                            if (characteristic.Uuid.ToString() == "b5f90077-aa8d-11e3-9046-0002a5d5c51b")
-                            {
-                                mNotifyQueryResp = characteristic;
-                                
-                                cancel.ThrowIfCancellationRequested();
-                                GattCommunicationStatus status = await mNotifyQueryResp.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                                
-                                if (status == GattCommunicationStatus.Success)
-                                {
-                                    mNotifyQueryResp.ValueChanged += MNotifyQueryResp_ValueChanged;
+                cancel.Register(() => _mBLED_ConnectionStatusChangedTaskSource.TrySetCanceled());
+                mBLED.ConnectionStatusChanged += MBLED_ConnectionStatusChanged;
 
-                                    if (mSendQueries != null)
+                cancel.ThrowIfCancellationRequested();
+                GattDeviceServicesResult result = await mBLED.GetGattServicesAsync();
+
+                if (result.Status == GattCommunicationStatus.Success)
+                {
+                    IReadOnlyList<GattDeviceService> services = result.Services;
+                    foreach (GattDeviceService gatt in services)
+                    {
+                        cancel.ThrowIfCancellationRequested();
+                        GattCharacteristicsResult res = await gatt.GetCharacteristicsAsync();
+
+                        if (res.Status == GattCommunicationStatus.Success)
+                        {
+                            IReadOnlyList<GattCharacteristic> characteristics = res.Characteristics;
+                            foreach (GattCharacteristic characteristic in characteristics)
+                            {
+                                GattCharacteristicProperties properties = characteristic.CharacteristicProperties;
+                                if (properties.HasFlag(GattCharacteristicProperties.Read))
+                                {
+                                    // This characteristic supports reading from it.
+                                }
+                                if (properties.HasFlag(GattCharacteristicProperties.Write))
+                                {
+                                    // This characteristic supports writing to it.
+                                }
+                                if (properties.HasFlag(GattCharacteristicProperties.Notify))
+                                {
+                                    // This characteristic supports subscribing to notifications.
+                                }
+                                if (characteristic.Uuid.ToString() == "b5f90002-aa8d-11e3-9046-0002a5d5c51b")
+                                {
+                                    mReadAPName = characteristic;
+                                }
+                                if (characteristic.Uuid.ToString() == "b5f90003-aa8d-11e3-9046-0002a5d5c51b")
+                                {
+                                    mReadAPPass = characteristic;
+                                }
+                                if (characteristic.Uuid.ToString() == "b5f90072-aa8d-11e3-9046-0002a5d5c51b")
+                                {
+                                    mSendCmds = characteristic;
+                                }
+                                if (characteristic.Uuid.ToString() == "b5f90073-aa8d-11e3-9046-0002a5d5c51b")
+                                {
+                                    mNotifyCmds = characteristic;
+
+                                    cancel.ThrowIfCancellationRequested();
+                                    GattCommunicationStatus status = await mNotifyCmds.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+
+                                    if (status == GattCommunicationStatus.Success)
                                     {
-                                        //Register for settings and status updates
-                                        DataWriter mm = new DataWriter();
-                                        mm.WriteBytes(new byte[] { 1, 0x52 });
-                                        
-                                        cancel.ThrowIfCancellationRequested();
-                                        GattCommunicationStatus gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
-                                        
-                                        mm = new DataWriter();
-                                        mm.WriteBytes(new byte[] { 1, 0x53 });
-                                        
-                                        cancel.ThrowIfCancellationRequested();
-                                        gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
+                                        mNotifyCmds.ValueChanged += MNotifyCmds_ValueChanged;
                                     }
                                     else
                                     {
-                                        StatusOutput("send queries was null!");
+                                        //failure
+                                        StatusOutput("Failed to attach notify cmd " + status);
                                     }
                                 }
-                                else
+                                if (characteristic.Uuid.ToString() == "b5f90074-aa8d-11e3-9046-0002a5d5c51b")
                                 {
-                                    //failure
-                                    StatusOutput("Failed to attach notify query " + status);
+                                    mSetSettings = characteristic;
+                                }
+                                if (characteristic.Uuid.ToString() == "b5f90075-aa8d-11e3-9046-0002a5d5c51b")
+                                {
+                                    mNotifySettings = characteristic;
+
+                                    cancel.ThrowIfCancellationRequested();
+                                    GattCommunicationStatus status = await mNotifySettings.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+
+                                    if (status == GattCommunicationStatus.Success)
+                                    {
+                                        mNotifySettings.ValueChanged += MNotifySettings_ValueChanged;
+                                    }
+                                    else
+                                    {
+                                        //failure
+                                        StatusOutput("Failed to attach notify settings " + status);
+                                    }
+                                }
+                                if (characteristic.Uuid.ToString() == "b5f90076-aa8d-11e3-9046-0002a5d5c51b")
+                                {
+                                    mSendQueries = characteristic;
+                                }
+                                if (characteristic.Uuid.ToString() == "b5f90077-aa8d-11e3-9046-0002a5d5c51b")
+                                {
+                                    mNotifyQueryResp = characteristic;
+
+                                    cancel.ThrowIfCancellationRequested();
+                                    GattCommunicationStatus status = await mNotifyQueryResp.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+
+                                    if (status == GattCommunicationStatus.Success)
+                                    {
+                                        mNotifyQueryResp.ValueChanged += MNotifyQueryResp_ValueChanged;
+
+                                        if (mSendQueries != null)
+                                        {
+                                            //Register for settings and status updates
+                                            DataWriter mm = new DataWriter();
+                                            mm.WriteBytes(new byte[] { 1, 0x52 });
+
+                                            cancel.ThrowIfCancellationRequested();
+                                            GattCommunicationStatus gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
+
+                                            mm = new DataWriter();
+                                            mm.WriteBytes(new byte[] { 1, 0x53 });
+
+                                            cancel.ThrowIfCancellationRequested();
+                                            gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
+                                        }
+                                        else
+                                        {
+                                            StatusOutput("send queries was null!");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        //failure
+                                        StatusOutput("Failed to attach notify query " + status);
+                                    }
                                 }
                             }
                         }
                     }
+                    await SetThirdPartySource(cancel);
                 }
-                SetThirdPartySource();
+                else if (result.Status == GattCommunicationStatus.Unreachable)
+                {
+                    //couldn't find camera
+                    StatusOutput("Connection failed");
+                }
+
+                CancellationTokenSource timeOutCancelSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                timeOutCancelSource.Token.Register(() =>
+                {
+                    StatusOutput("Timeout");
+                    _mBLED_ConnectionStatusChangedTaskSource.TrySetCanceled(); 
+                });
+
+                await _mBLED_ConnectionStatusChangedTaskSource.Task;
             }
-            else if (result.Status == GattCommunicationStatus.Unreachable)
+            catch (OperationCanceledException)
             {
-                //couldn't find camera
-                StatusOutput("Connection failed");
+                StatusOutput("Connect canceled", true);
+                throw;
             }
-            
-            await _mBLED_ConnectionStatusChangedTaskSource.Task;
-            mBLED.ConnectionStatusChanged -= MBLED_ConnectionStatusChanged;
+            finally
+            {
+                mBLED.ConnectionStatusChanged -= MBLED_ConnectionStatusChanged;
+                mBLED.Dispose();
+            }
         }
         public async Task<string> /*void*/ BtnReadAPName_Click()//(object sender, RoutedEventArgs e)
         {
@@ -444,22 +491,18 @@ namespace GoProCSharpSample
         #endregion
 
         #region Device Watcher Event Handlers
-
-        public event Action<string> OnChangeStatusText;
         private void MDeviceWatcher_Stopped(DeviceWatcher sender, object args)
         {
-            OnChangeStatusText?.Invoke("Scan Stopped!");
+            //StatusOutput("Scan Stopped!", true);
             // Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             // {
             //     this.txtStatusBar.Text = "Scan Stopped!";
             // }));
         }
 
-        public event Action OnScanComplete;
         private void MDeviceWatcher_EnumerationCompleted(DeviceWatcher sender, object args)
         {
-            OnScanComplete?.Invoke();
-            OnChangeStatusText?.Invoke("Scan Complete");
+            StatusOutput("Scan Complete", true);
             // Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             // {
             //     this.txtStatusBar.Text = "Scan Complete";
@@ -572,8 +615,8 @@ namespace GoProCSharpSample
 
         private void MBLED_ConnectionStatusChanged(BluetoothLEDevice sender, object args)
         {
-            if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected) StatusOutput("CONNECTED");
-            else StatusOutput("DISCONNECTED");
+            if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected) StatusOutput("CONNECTED", true);
+            else StatusOutput("DISCONNECTED", true);
             _mBLED_ConnectionStatusChangedTaskSource.SetResult(0);
         }
         private void Custom_PairingRequested(DeviceInformationCustomPairing sender, DevicePairingRequestedEventArgs args)
@@ -679,7 +722,7 @@ namespace GoProCSharpSample
 
         #region Private Helper Functions
 
-        private async void SetThirdPartySource()
+        private async Task SetThirdPartySource(CancellationToken cancel)
         {
             DataWriter mm = new DataWriter();
             mm.WriteBytes(new byte[] { 0x01, 0x50 });
@@ -687,6 +730,7 @@ namespace GoProCSharpSample
 
             if (mSendCmds != null)
             {
+                cancel.ThrowIfCancellationRequested();
                 res = await mSendCmds.WriteValueAsync(mm.DetachBuffer());
             }
             if (res != GattCommunicationStatus.Success && mSendCmds != null)
@@ -695,8 +739,11 @@ namespace GoProCSharpSample
             }
         }
 
-        private void StatusOutput(string status)
+        public event Action<string> OnChangeStatusText;
+        private void StatusOutput(string status, bool isFuncFinish = false)
         {
+            if (isFuncFinish) status += " (End of function)";
+
             OnChangeStatusText?.Invoke(status);
             // Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             // {
