@@ -13,19 +13,13 @@ namespace GoProCUI
         public event Action OnGoProDataChanged;
         
         private CancellationTokenSource _cancelTokenSource = new CancellationTokenSource();
-        private MainWindow _mainWindow;
-        private bool _isConnectiong;
+        private readonly MainWindow _mainWindow = new MainWindow();
+        private bool _isConnecting;
         
         public GoProCommunication()
         {
-            _mainWindow = new MainWindow();
-            
             _mainWindow.Devices.CollectionChanged += OnDevicesCollectionChanged;
-            
-            _mainWindow.OnChangeStatusText += message =>
-            {
-                Console.WriteLine($"Status : {DateTime.Now} {message}");
-            };
+            _mainWindow.OnChangeStatusText += OnOnChangeStatusText;
         }
 
         private void OnDevicesCollectionChanged(object sender, NotifyCollectionChangedEventArgs args)
@@ -39,11 +33,18 @@ namespace GoProCUI
             OnGoProDataChanged?.Invoke();
         }
         
+        private void OnOnChangeStatusText(string message)
+        {
+            Console.WriteLine($"Status : {DateTime.Now} {message}");
+            GoProData.Message = message;
+            OnGoProDataChanged?.Invoke();
+        }
+        
         private async Task WaitOtherConnecting(CancellationToken token)
         {
             try
             {
-                while (_isConnectiong) await Task.Delay(100, token);
+                while (_isConnecting) await Task.Delay(100, token);
             }
             catch (OperationCanceledException)
             {
@@ -52,7 +53,7 @@ namespace GoProCUI
         
         private async Task DeleteOldConnect()
         {
-            if (!_isConnectiong) return;
+            if (!_isConnecting) return;
                 
             _cancelTokenSource.Cancel();
             await WaitOtherConnecting(CancellationToken.None);
@@ -65,7 +66,7 @@ namespace GoProCUI
 
             try
             {
-                _isConnectiong = true;
+                _isConnecting = true;
                 await _mainWindow.BtnScanBLE_Click(_cancelTokenSource.Token);
             }
             catch (OperationCanceledException)
@@ -74,7 +75,7 @@ namespace GoProCUI
             }
             finally
             {
-                _isConnectiong = false;
+                _isConnecting = false;
             }
         }
         
@@ -84,7 +85,7 @@ namespace GoProCUI
 
             try
             {
-                _isConnectiong = true;
+                _isConnecting = true;
                 MainWindow.GDeviceInformation gDeviceInformation = _mainWindow.Devices.FirstOrDefault(x => x.DeviceInfo.Id == device.Id);
                 await _mainWindow.BtnConnect_Click(gDeviceInformation, _cancelTokenSource.Token);
             }
@@ -94,7 +95,7 @@ namespace GoProCUI
             }
             finally
             {
-                _isConnectiong = false;
+                _isConnecting = false;
             }
         }
     }

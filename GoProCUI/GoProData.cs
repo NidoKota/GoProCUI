@@ -5,13 +5,14 @@ using System.Collections.Generic;
 public class GoProData
 {
     public List<Device> Devices = new List<Device>();
-    public bool AccessPoint;
-    public float Buttery;
+    public string Message;
 
     [Serializable]
     public class Device
     {
         public string Name;
         public string Id;
+        public bool AccessPoint;
+        public float Buttery;
     }
 }

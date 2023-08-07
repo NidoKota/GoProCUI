@@ -214,10 +214,16 @@ namespace GoProCSharpSample
                 return;
             }
 
-            using BluetoothLEDevice mBLED = await BluetoothLEDevice.FromIdAsync(mDI.DeviceInfo.Id);
             cancel.ThrowIfCancellationRequested();
+            using BluetoothLEDevice mBLED = await BluetoothLEDevice.FromIdAsync(mDI.DeviceInfo.Id);
 
-            if(!mBLED.DeviceInformation.Pairing.IsPaired)
+            if (mBLED == null)
+            {
+                StatusOutput("Device not found");
+                return;
+            }
+            
+            if (!mBLED.DeviceInformation.Pairing.IsPaired)
             {
                 // StatusOutput("Device not paired");
                 // return;
@@ -230,23 +236,26 @@ namespace GoProCSharpSample
             }
             
             StatusOutput("Connecting...");
-
-            if (mBLED.ConnectionStatus == BluetoothConnectionStatus.Connected) MBLED_ConnectionStatusChanged(mBLED, null);
-            else mBLED.ConnectionStatusChanged += MBLED_ConnectionStatusChanged;
-
-            cancel.Register(() => _mBLED_ConnectionStatusChangedTaskSource.TrySetCanceled());
-            await _mBLED_ConnectionStatusChangedTaskSource.Task;
             
-            GattDeviceServicesResult result = await mBLED.GetGattServicesAsync();
+            if (mBLED.ConnectionStatus == BluetoothConnectionStatus.Connected)
+            {
+                MBLED_ConnectionStatusChanged(mBLED, null);
+                return;
+            }
+            
+            cancel.Register(() => _mBLED_ConnectionStatusChangedTaskSource.TrySetCanceled());
+            mBLED.ConnectionStatusChanged += MBLED_ConnectionStatusChanged;
+            
             cancel.ThrowIfCancellationRequested();
+            GattDeviceServicesResult result = await mBLED.GetGattServicesAsync();
 
             if (result.Status == GattCommunicationStatus.Success)
             {
                 IReadOnlyList<GattDeviceService> services = result.Services;
                 foreach (GattDeviceService gatt in services)
                 {
-                    GattCharacteristicsResult res = await gatt.GetCharacteristicsAsync();
                     cancel.ThrowIfCancellationRequested();
+                    GattCharacteristicsResult res = await gatt.GetCharacteristicsAsync();
                     
                     if (res.Status == GattCommunicationStatus.Success)
                     {
@@ -281,8 +290,9 @@ namespace GoProCSharpSample
                             if (characteristic.Uuid.ToString() == "b5f90073-aa8d-11e3-9046-0002a5d5c51b")
                             {
                                 mNotifyCmds = characteristic;
-                                GattCommunicationStatus status = await mNotifyCmds.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                                
                                 cancel.ThrowIfCancellationRequested();
+                                GattCommunicationStatus status = await mNotifyCmds.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
                                 
                                 if (status == GattCommunicationStatus.Success)
                                 {
@@ -301,8 +311,9 @@ namespace GoProCSharpSample
                             if (characteristic.Uuid.ToString() == "b5f90075-aa8d-11e3-9046-0002a5d5c51b")
                             {
                                 mNotifySettings = characteristic;
-                                GattCommunicationStatus status = await mNotifySettings.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                                
                                 cancel.ThrowIfCancellationRequested();
+                                GattCommunicationStatus status = await mNotifySettings.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
                                 
                                 if (status == GattCommunicationStatus.Success)
                                 {
@@ -321,22 +332,27 @@ namespace GoProCSharpSample
                             if (characteristic.Uuid.ToString() == "b5f90077-aa8d-11e3-9046-0002a5d5c51b")
                             {
                                 mNotifyQueryResp = characteristic;
-                                GattCommunicationStatus status = await mNotifyQueryResp.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                                
                                 cancel.ThrowIfCancellationRequested();
+                                GattCommunicationStatus status = await mNotifyQueryResp.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
                                 
                                 if (status == GattCommunicationStatus.Success)
                                 {
                                     mNotifyQueryResp.ValueChanged += MNotifyQueryResp_ValueChanged;
+
                                     if (mSendQueries != null)
                                     {
                                         //Register for settings and status updates
                                         DataWriter mm = new DataWriter();
                                         mm.WriteBytes(new byte[] { 1, 0x52 });
-                                        GattCommunicationStatus gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
+                                        
                                         cancel.ThrowIfCancellationRequested();
+                                        GattCommunicationStatus gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
                                         
                                         mm = new DataWriter();
                                         mm.WriteBytes(new byte[] { 1, 0x53 });
+                                        
+                                        cancel.ThrowIfCancellationRequested();
                                         gat = await mSendQueries.WriteValueAsync(mm.DetachBuffer());
                                     }
                                     else
@@ -360,6 +376,9 @@ namespace GoProCSharpSample
                 //couldn't find camera
                 StatusOutput("Connection failed");
             }
+            
+            await _mBLED_ConnectionStatusChangedTaskSource.Task;
+            mBLED.ConnectionStatusChanged -= MBLED_ConnectionStatusChanged;
         }
         public async Task<string> /*void*/ BtnReadAPName_Click()//(object sender, RoutedEventArgs e)
         {
