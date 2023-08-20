@@ -96,6 +96,9 @@ namespace GoProCUI
                 case "ConnectBluetooth":
                     await _goProCommunication.ConnectBluetooth(_goProCommunication.GoProData.Devices[0]);
                     break;
+                case "Cancel":
+                    await _goProCommunication.DeleteOldConnect();
+                    break;
                 default:
                     throw new ArgumentException();
             }

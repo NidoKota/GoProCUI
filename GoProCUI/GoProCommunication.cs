@@ -51,7 +51,7 @@ namespace GoProCUI
             }
         }
         
-        private async Task DeleteOldConnect()
+        public async Task DeleteOldConnect()
         {
             if (!_isConnecting) return;
                 
